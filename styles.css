@@ -1,0 +1,64 @@
+
+body {
+  background: #eee;
+  padding-top:35px;
+  width:600px;
+  margin:auto;
+}
+
+h1.title {
+  font-family: sans-serif;
+  font-family: "Fira Sans";
+  font-weight: normal;
+  font-size:40px;
+  padding-bottom: 35px;
+  position: relative;
+  left:-38px;
+}
+
+h1.title:after {
+  content: "";
+  display: block;
+  width: 170px;
+  height: 10px;
+  background: #6fe2be;
+  position:relative;
+  left:-34px;
+  margin-top:4px;
+}
+
+.main-view {
+  background: white;
+  padding:60px;
+  border: 2px solid black;
+  font-size: 30px;
+  font-family: "Fira Mono";
+}
+
+.result:before {
+  content: "▸";
+  padding-left: 5px;
+  padding-right: 15px;
+}
+
+.result {
+  margin-top: 35px;
+}
+
+.cursor {
+  display: inline-block;
+  width:0px;
+  height:1em;
+  outline: 1px solid #d06dff;
+  position: relative;
+  top:5px;
+}
+
+.hole {
+  display: inline-block;
+  width: 18px;
+  height: 1em;
+  border: 1px solid black;
+  position:relative;
+  top: 5px;
+}
