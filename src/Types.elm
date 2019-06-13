@@ -1,15 +1,16 @@
 module Types exposing
     ( Ast(..)
     , Constant(..)
-    , Cursor
-    , Env
     , Ident
     , Model
     , Msg(..)
+    , Op(..)
+    , Pat(..)
+    , Sequence(..)
     , Token(..)
+    , ZToken
     )
 
-import Dict exposing (Dict)
 import Keyboard.Event exposing (KeyboardEvent)
 
 
@@ -17,14 +18,12 @@ import Keyboard.Event exposing (KeyboardEvent)
 -- Types for elm model
 
 
+type alias ZToken =
+    ( List Token, Maybe Token, List Token )
+
+
 type alias Model =
-    { tokens : List Token
-    , cursor : Cursor
-    }
-
-
-type alias Cursor =
-    Int
+    ZToken
 
 
 type Msg
@@ -45,25 +44,33 @@ type Constant
     | Builtin (Ast -> Ast)
 
 
+type Op
+    = Space
+
+
+type Sequence
+    = Cons Ast Op Sequence
+    | End Ast
+
+
 type Ast
     = Var Ident
-    | Abs Ident Ast
-    | App Ast Ast
+    | Abs Pat Ast
+    | Sequence Sequence
     | Hole
     | Const Constant
 
 
+type Pat
+    = PatHole
+    | PatVar Ident
+
+
 type Token
-    = Ident Ident
+    = Char Char
     | Lambda
     | OpenParen
     | CloseParen
     | Dot
-    | Space
-    | Cursor
+    | Op Op
     | HoleToken
-    | ConstantToken Constant
-
-
-type alias Env =
-    Dict Ident Ast

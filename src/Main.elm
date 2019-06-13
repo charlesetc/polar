@@ -1,14 +1,17 @@
 module Main exposing (init, main, subscriptions, update, view)
 
+-- import Normalize
+
 import Array
-import Ast
 import Browser
-import Eval
 import Html exposing (Html)
 import Html.Attributes exposing (autofocus, class, tabindex)
-import Html.Events exposing (on)
+import Html.Events exposing (preventDefaultOn)
 import Json.Decode
 import Keyboard.Event exposing (decodeKeyboardEvent)
+import Lambda
+import Parser
+import Token
 import Types exposing (..)
 
 
@@ -19,12 +22,10 @@ import Types exposing (..)
 init : () -> ( Model, Cmd Msg )
 init _ =
     let
-        ast =
-            App (Abs "x" (App (Var "x") Hole)) (Abs "x" (Const (Int 0)))
+        lambda =
+            Lambda.App (Lambda.Abs (PatVar "x") (Lambda.App (Lambda.Var "x") Lambda.Hole)) (Lambda.Abs (PatVar "x") Lambda.Hole)
     in
-    ( { tokens = Ast.to_tokens ast
-      , cursor = 2
-      }
+    ( ( [], Nothing, Lambda.to_tokens lambda )
     , Cmd.none
     )
 
@@ -33,63 +34,58 @@ init _ =
 -- VIEW
 
 
+should_prevent_default a =
+    case a of
+        Keyboard { key } ->
+            key == Just "Tab"
+
+
 view : Model -> Html Msg
 view model =
     let
-        ( ast, _ ) =
-            Ast.parse_ast model.tokens
+        ast_view =
+            Html.div [ class "result" ]
+                [ case Token.remove_cursor model |> Parser.parse_many of
+                    Parser.Ok ( ast, [] ) ->
+                        Html.span []
+                            [ Lambda.view_ast ast
+                            , case Lambda.eval_ast ast of
+                                Lambda.Success a ->
+                                    Html.div [ class "evaluated" ]
+                                        [ Lambda.view_lambda a ]
+
+                                Lambda.Error e ->
+                                    Lambda.view_error e
+                            ]
+
+                    Parser.Ok ( ast, rest ) ->
+                        Html.div
+                            [ class "pare-error" ]
+                            [ Lambda.view_ast ast
+                            , Html.text "got extra tokens:"
+                            , Token.view_token_list rest
+                            ]
+
+                    Parser.Error e ->
+                        Html.div
+                            [ class "parse-error" ]
+                            [ Html.text ("Ast error: " ++ e) ]
+                ]
     in
     Html.div
         [ class "main-view"
-        , on "keydown" <|
-            Json.Decode.map Keyboard decodeKeyboardEvent
+        , preventDefaultOn "keydown" <|
+            (Json.Decode.map Keyboard decodeKeyboardEvent |> Json.Decode.map (\x -> ( x, should_prevent_default x )))
         , tabindex 0
         , autofocus True
         ]
-        [ Ast.view_ast ast (Just model.cursor)
-        , Html.div [ class "result" ]
-            [ case Eval.eval ast of
-                Eval.Success a ->
-                    Ast.view_ast a Nothing
-
-                Eval.Error e ->
-                    Eval.view_error e
-            ]
+        [ Token.view_ztoken model
+        , ast_view
         ]
 
 
 
 -- UPDATE
-
-
-type Action
-    = Left
-    | Right
-
-
-update_action : Maybe Action -> Model -> Model
-update_action a model =
-    case a of
-        Just Left ->
-            if model.cursor > 0 then
-                let
-                    token_array =
-                        Array.fromList model.tokens
-                in
-                { model | cursor = model.cursor - 1 }
-
-            else
-                model
-
-        Just Right ->
-            if model.cursor < (model.tokens |> List.length) then
-                { model | cursor = model.cursor + 1 }
-
-            else
-                model
-
-        Nothing ->
-            model
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -98,29 +94,51 @@ update msg model =
         _ =
             Debug.log "received event" msg
 
-        action =
+        new_model =
             case msg of
-                Keyboard { key } ->
+                Keyboard { key, shiftKey } ->
                     case key of
                         Just "ArrowLeft" ->
-                            Just Left
+                            Token.move_cursor_left model
 
                         Just "ArrowRight" ->
-                            Just Right
+                            Token.move_cursor_right model
 
-                        Just "l" ->
-                            Just Right
+                        Just "Backspace" ->
+                            Token.backspace model
 
-                        Just "h" ->
-                            Just Left
+                        Just " " ->
+                            Token.space model
+
+                        Just "(" ->
+                            Token.open_paren model
+
+                        Just "Tab" ->
+                            if shiftKey then
+                                Token.previous_hole model
+
+                            else
+                                Token.next_hole model
+
+                        Just "\\" ->
+                            Token.construct_lambda model
+
+                        Just s ->
+                            case String.uncons s of
+                                Just ( c, "" ) ->
+                                    if Char.isAlphaNum c then
+                                        Token.add_char c model
+
+                                    else
+                                        model
+
+                                _ ->
+                                    model
 
                         _ ->
-                            Nothing
-
-        new_model =
-            update_action action model
+                            model
     in
-    ( new_model, Cmd.none )
+    ( Token.normalize_selection new_model, Cmd.none )
 
 
 
