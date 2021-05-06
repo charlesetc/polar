@@ -126,9 +126,8 @@ update msg model =
                         Just "/" ->
                             Token.construct_op Divide model
 
-                        Just "=" ->
-                            Token.construct_eq model
-
+                        -- Just "=" ->
+                        --     Token.construct_eq model
                         Just "Tab" ->
                             if shiftKey then
                                 Token.previous_hole model

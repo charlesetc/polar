@@ -227,11 +227,12 @@ construct_op op z =
             ( head, Just c, tail )
 
 
-construct_eq : ZToken -> ZToken
-construct_eq z =
-    case z of
-        ( OpenParen :: head, Nothing, tail ) ->
-            ( OpenParen :: head, Just (HoleToken P), Equals :: tail )
+
+-- construct_eq : ZToken -> ZToken
+-- construct_eq z =
+--     case z of
+--         ( OpenParen :: head, Nothing, tail ) ->
+--             ( OpenParen :: head, Just (HoleToken P), Equals :: tail )
 
 
 move_paren_left : ZToken -> ZToken
