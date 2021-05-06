@@ -19,8 +19,15 @@
             "elm/virtual-dom": "1.0.2"
         }
     },
-    "test-dependencies": {
-        "direct": {},
-        "indirect": {}
+    "indirect": {
+      "SwiftsNamesake/proper-keyboard": "4.0.0",
+      "elm/time": "1.0.0",
+      "elm/url": "1.0.0",
+      "elm/virtual-dom": "1.0.2"
     }
+  },
+  "test-dependencies": {
+    "direct": {},
+    "indirect": {}
+  }
 }
