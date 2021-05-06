@@ -1,6 +1,7 @@
 module Parser exposing
     ( Result(..)
     , parse_many
+    , parse_pattern
     , parse_single
     )
 
@@ -11,35 +12,35 @@ import Pat
 import Types exposing (..)
 
 
-slurp_chars : List Token -> ( Ident, List Token )
+slurp_chars : List Token -> ( Ident, List Token, Int )
 slurp_chars tokens =
     case tokens of
-        (Char c) :: rest ->
+        (Char _ c) :: rest ->
             let
-                ( v, ts ) =
+                ( v, ts, n ) =
                     slurp_chars rest
             in
-            ( String.cons c v, ts )
+            ( String.cons c v, ts, n + 1 )
 
         _ ->
-            ( "", tokens )
+            ( "", tokens, 0 )
 
 
-parse_pattern : List Token -> ( Pat, List Token )
+parse_pattern : List Token -> ( Pat, List Token, Int )
 parse_pattern tokens =
     case tokens of
-        HoleToken :: ts ->
-            ( PatHole, ts )
+        (HoleToken _) :: ts ->
+            ( PatHole, ts, 1 )
 
-        (Char _) :: _ ->
+        (Char _ _) :: _ ->
             let
-                ( v, ts ) =
+                ( v, ts, n ) =
                     slurp_chars tokens
             in
-            ( PatVar v, ts )
+            ( PatVar v, ts, n )
 
         _ ->
-            ( PatVar "ParseError", tokens )
+            ( PatVar "ParseError", tokens, 0 )
 
 
 type Result a
@@ -47,35 +48,35 @@ type Result a
     | Error String
 
 
-parse_sequence : List Token -> Result ( Sequence, List Token )
+parse_sequence : List Token -> Result ( Sequence, List Token, Int )
 parse_sequence tokens =
     case parse_single tokens of
-        Ok ( a, (Op o) :: ts ) ->
+        Ok ( a, (Op o) :: ts, n ) ->
             case parse_sequence ts of
-                Ok ( seq, rest ) ->
-                    Ok ( Cons a o seq, rest )
+                Ok ( seq, rest, m ) ->
+                    Ok ( Cons a o seq, rest, n + 1 + m )
 
                 Error e ->
                     Error e
 
-        Ok ( a, CloseParen :: rest ) ->
-            Ok ( End a, CloseParen :: rest )
+        Ok ( a, CloseParen :: rest, n ) ->
+            Ok ( End a, CloseParen :: rest, n )
 
-        Ok ( a, [] ) ->
-            Ok ( End a, [] )
+        Ok ( a, [], n ) ->
+            Ok ( End a, [], n )
 
-        Ok ( _, _ :: rest ) ->
+        Ok ( _, _ :: rest, _ ) ->
             Error "error parsing sequence"
 
         Error e ->
             Error e
 
 
-parse_many : List Token -> Result ( Ast, List Token )
+parse_many : List Token -> Result ( Ast, List Token, Int )
 parse_many ts =
     case parse_sequence ts of
-        Ok ( seq, rest ) ->
-            Ok ( Sequence seq, rest )
+        Ok ( seq, rest, n ) ->
+            Ok ( Sequence seq, rest, n )
 
         Error e ->
             Error e
@@ -90,19 +91,19 @@ parse_identifier s =
         Var s
 
 
-parse_single : List Token -> Result ( Ast, List Token )
+parse_single : List Token -> Result ( Ast, List Token, Int )
 parse_single tokens =
     case tokens of
-        (Char _) :: _ ->
+        (Char E _) :: _ ->
             let
-                ( v, ts ) =
+                ( v, ts, n ) =
                     slurp_chars tokens
             in
-            Ok ( parse_identifier v, ts )
+            Ok ( parse_identifier v, ts, n )
 
         Lambda :: ts ->
             let
-                ( p, ts2 ) =
+                ( p, ts2, n ) =
                     parse_pattern ts
 
                 body =
@@ -114,16 +115,16 @@ parse_single tokens =
                             Error "ParseError in lambda"
             in
             case body of
-                Ok ( b, rest ) ->
-                    Ok ( Abs p b, rest )
+                Ok ( b, rest, m ) ->
+                    Ok ( Abs p b, rest, n + m + 2 )
 
                 Error e ->
                     Error e
 
         OpenParen :: ts ->
             case parse_many ts of
-                Ok ( a, CloseParen :: a_ts ) ->
-                    Ok ( a, a_ts )
+                Ok ( a, CloseParen :: a_ts, n ) ->
+                    Ok ( a, a_ts, n + 2 )
 
                 Ok _ ->
                     Error "parse error parsing sequence, expected ')'"
@@ -131,8 +132,8 @@ parse_single tokens =
                 Error s ->
                     Error s
 
-        HoleToken :: ts ->
-            Ok ( Hole, ts )
+        (HoleToken E) :: ts ->
+            Ok ( Hole, ts, 1 )
 
         _ ->
             let

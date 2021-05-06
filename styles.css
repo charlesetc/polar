@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Fira+Mono:wght@500&display=swap');
 
 body {
   background: #eee;
@@ -30,7 +31,12 @@ h1.title {
   outline: none;
 }
 
-.result:before {
+.evaluated, .parsed {
+  min-height: 50px;
+  display: block;
+}
+
+.parsed:before {
   content: "▸";
   padding-left: 5px;
   padding-right: 15px;
@@ -46,11 +52,7 @@ h1.title {
   padding-right: 15px;
 }
 
-.evaluated {
-
-}
-
-.malformed-token {
+.malformed-token, .parse-error {
   outline: 2px dotted red;
 }
 
@@ -69,6 +71,9 @@ h1.title {
   top: 4px;
 }
 
+/* .hole:after::-moz-selection { background-color: red} */
+*::selection { background-color: black; color: white }
+
 .hole.cursor:after,
 .hole:after {
   content: "";
@@ -81,4 +86,9 @@ h1.title {
 .hole.cursor:after {
   outline: 2px solid #d06dff;
   background: #f9edff;
+}
+
+.op {
+  padding-left:10px;
+  padding-right:10px;
 }

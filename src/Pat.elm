@@ -8,7 +8,7 @@ to_tokens : Pat -> List Token
 to_tokens p =
     case p of
         PatHole ->
-            [ HoleToken ]
+            [ HoleToken P ]
 
         PatVar s ->
-            ident_to_tokens s
+            ident_to_tokens P s

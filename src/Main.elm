@@ -21,11 +21,7 @@ import Types exposing (..)
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    let
-        lambda =
-            Lambda.App (Lambda.Abs (PatVar "x") (Lambda.App (Lambda.Var "x") Lambda.Hole)) (Lambda.Abs (PatVar "x") Lambda.Hole)
-    in
-    ( ( [], Nothing, Lambda.to_tokens lambda )
+    ( ( [], Just (HoleToken E), [] )
     , Cmd.none
     )
 
@@ -37,7 +33,7 @@ init _ =
 should_prevent_default a =
     case a of
         Keyboard { key } ->
-            key == Just "Tab"
+            key == Just "Tab" || key == Just "/"
 
 
 view : Model -> Html Msg
@@ -46,9 +42,11 @@ view model =
         ast_view =
             Html.div [ class "result" ]
                 [ case Token.remove_cursor model |> Parser.parse_many of
-                    Parser.Ok ( ast, [] ) ->
+                    Parser.Ok ( ast, [], _ ) ->
                         Html.span []
-                            [ Lambda.view_ast ast
+                            [ Html.div [ class "parsed" ]
+                                [ Lambda.view_ast ast
+                                ]
                             , case Lambda.eval_ast ast of
                                 Lambda.Success a ->
                                     Html.div [ class "evaluated" ]
@@ -58,9 +56,9 @@ view model =
                                     Lambda.view_error e
                             ]
 
-                    Parser.Ok ( ast, rest ) ->
+                    Parser.Ok ( ast, rest, _ ) ->
                         Html.div
-                            [ class "pare-error" ]
+                            [ class "parse-error" ]
                             [ Lambda.view_ast ast
                             , Html.text "got extra tokens:"
                             , Token.view_token_list rest
@@ -108,10 +106,28 @@ update msg model =
                             Token.backspace model
 
                         Just " " ->
-                            Token.space model
+                            Token.construct_op Space model
 
                         Just "(" ->
                             Token.open_paren model
+
+                        Just "}" ->
+                            Token.move_paren_left model
+
+                        Just "+" ->
+                            Token.construct_op Plus model
+
+                        Just "-" ->
+                            Token.construct_op Minus model
+
+                        Just "*" ->
+                            Token.construct_op Times model
+
+                        Just "/" ->
+                            Token.construct_op Divide model
+
+                        Just "=" ->
+                            Token.construct_eq model
 
                         Just "Tab" ->
                             if shiftKey then

@@ -12,6 +12,7 @@ import Dict exposing (Dict)
 import Helpers exposing (..)
 import Html exposing (Html, div, text)
 import Pat
+import ShuntingYard exposing (..)
 import Token
 import Types exposing (..)
 
@@ -20,6 +21,7 @@ type Lambda
     = Var Ident
     | Abs Pat Lambda
     | App Lambda Lambda
+    | BinaryOp Op Lambda Lambda
     | Hole
     | Const Constant
 
@@ -34,19 +36,66 @@ view_ast ast =
         |> view_lambda
 
 
+lambda_of_operation : Op -> Lambda -> Lambda -> Lambda
+lambda_of_operation op a b =
+    case op of
+        Space ->
+            App a b
+
+        _ ->
+            BinaryOp op a b
+
+
 view_lambda : Lambda -> Html Msg
 view_lambda l =
     to_tokens l |> Token.view_token_list
 
 
-sequence_to_lambda : Sequence -> Lambda
-sequence_to_lambda s =
-    case s of
-        End ast ->
-            ast_to_lambda ast
+postfix_to_lambda : List Lambda -> ShuntingYard.SList -> Lambda
+postfix_to_lambda stack slist =
+    case slist of
+        (A a) :: rest ->
+            postfix_to_lambda (ast_to_lambda a :: stack) rest
 
-        Cons a Space seq ->
-            App (ast_to_lambda a) (sequence_to_lambda seq)
+        (O o) :: orest ->
+            case stack of
+                b :: a :: arest ->
+                    let
+                        lambda =
+                            lambda_of_operation o a b
+                    in
+                    postfix_to_lambda (lambda :: arest) orest
+
+                other ->
+                    let
+                        _ =
+                            Debug.log "whoops -- malformed postfix 2" other
+                    in
+                    Var "error"
+
+        [] ->
+            case stack of
+                [ l ] ->
+                    l
+
+                other ->
+                    let
+                        _ =
+                            Debug.log "whoops -- malformed postfix 2" other
+                    in
+                    Var "error"
+
+
+sequence_to_lambda : Sequence -> Lambda
+sequence_to_lambda seq =
+    let
+        infix =
+            ShuntingYard.slist_of_sequence seq
+
+        postfix =
+            ShuntingYard.shunting_yard [] infix
+    in
+    postfix_to_lambda [] postfix
 
 
 ast_to_lambda : Ast -> Lambda
@@ -57,6 +106,9 @@ ast_to_lambda a =
 
         Types.Abs pat body ->
             Abs pat (ast_to_lambda body)
+
+        Types.Let pat arg body ->
+            App (Abs pat (ast_to_lambda body)) (ast_to_lambda arg)
 
         Types.Sequence sequence ->
             sequence_to_lambda sequence
@@ -71,7 +123,8 @@ ast_to_lambda a =
 type Error
     = UnboundVar String
     | NotAFunction Lambda
-    | Impossible
+    | TypeError String
+    | Impossible String
 
 
 view_error e =
@@ -80,10 +133,13 @@ view_error e =
             div [] [ text "unbound var ", text s ]
 
         NotAFunction a ->
-            div [] [ text "not a function", view_lambda a ]
+            div [] [ text "not a function ", view_lambda a ]
 
-        Impossible ->
-            text "oh boy, impossible"
+        Impossible s ->
+            text ("oh boy, impossible " ++ s)
+
+        TypeError s ->
+            text ("type error: " ++ s)
 
 
 type Step res
@@ -100,7 +156,7 @@ type Result ast
 chain :
     Env
     -> Lambda
-    -> (Lambda -> Step ( Lambda, Env ))
+    -> (Env -> Lambda -> Step ( Lambda, Env ))
     -> Step ( Lambda, Env )
 chain env ast f =
     case step env ast of
@@ -108,7 +164,7 @@ chain env ast f =
             chain env2 res f
 
         Value a ->
-            f a
+            f env a
 
         StepError e ->
             StepError e
@@ -121,9 +177,9 @@ eval_ast ast =
 
 eval : Lambda -> Result Lambda
 eval ast =
-    case chain Dict.empty ast (\x -> Value x) of
+    case chain Dict.empty ast (\env x -> Value x) of
         Step _ ->
-            Error Impossible
+            Error (Impossible "can't get a step from a chain")
 
         Value a ->
             Success a
@@ -152,16 +208,56 @@ step env ast =
         Hole ->
             Value ast
 
+        BinaryOp o a b ->
+            chain env
+                a
+                (\env2 a2 ->
+                    chain env2
+                        b
+                        (\env3 b2 ->
+                            case ( a2, b2 ) of
+                                ( Const (Int a3), Const (Int b3) ) ->
+                                    let
+                                        fn =
+                                            case o of
+                                                Plus ->
+                                                    (+)
+
+                                                Minus ->
+                                                    (-)
+
+                                                Times ->
+                                                    (*)
+
+                                                Divide ->
+                                                    \_ _ -> 2
+
+                                                Space ->
+                                                    Debug.log "why is there a space as a binary op?" (\_ _ -> 0)
+
+                                        -- (/)
+                                    in
+                                    -- this env could be wrong
+                                    Step ( Const (Int (fn a3 b3)), env )
+
+                                _ ->
+                                    --! fix this in the future.
+                                    -- it should know if it's applied to an invalid value, like a lambda
+                                    Value ast
+                         -- StepError (TypeError "arguments to an op must be integers")
+                        )
+                )
+
         App a b ->
             chain env
                 a
-                (\a_ ->
-                    chain env
+                (\env2 a2 ->
+                    chain env2
                         b
-                        (\b_ ->
-                            case a_ of
+                        (\env3 b2 ->
+                            case a2 of
                                 Abs (PatVar var) body ->
-                                    Step ( body, Dict.insert var b_ env )
+                                    Step ( body, Dict.insert var b2 env3 )
 
                                 Abs PatHole body ->
                                     Value ast
@@ -172,14 +268,18 @@ step env ast =
                                     Value ast
 
                                 Var s ->
-                                    StepError Impossible
+                                    StepError (Impossible "got a var out of a chain")
 
-                                -- this is not true for builtins
+                                -- must be a binary op with a hole
+                                BinaryOp _ _ _ ->
+                                    Value ast
+
                                 Const c ->
                                     StepError (NotAFunction (Const c))
 
+                                -- must be an app with a hole
                                 App _ _ ->
-                                    StepError Impossible
+                                    Value ast
                         )
                 )
 
@@ -194,16 +294,16 @@ to_tokens ast =
             [ Lambda ] ++ Pat.to_tokens p ++ [ Dot ] ++ to_tokens body
 
         Var v ->
-            ident_to_tokens v
+            ident_to_tokens E v
 
         Const (Str s) ->
-            ident_to_tokens s
+            ident_to_tokens E s
 
         Const (Int i) ->
-            ident_to_tokens (String.fromInt i)
+            ident_to_tokens E (String.fromInt i)
 
-        Const (Builtin _) ->
-            ident_to_tokens "BUILTIN"
+        BinaryOp op a b ->
+            [ OpenParen ] ++ to_tokens a ++ [ Op op ] ++ to_tokens b ++ [ CloseParen ]
 
         Hole ->
-            [ HoleToken ]
+            [ HoleToken E ]

@@ -2,22 +2,39 @@ module Token exposing
     ( add_char
     , backspace
     , construct_lambda
+    , construct_op
+    , construct_plus
     , move_cursor_left
     , move_cursor_right
+    , move_paren_left
     , next_hole
     , normalize_selection
     , open_paren
     , previous_hole
     , remove_cursor
-    , space
     , view_token_list
     , view_ztoken
     )
 
+import Helpers exposing (..)
 import Html exposing (Html, span, text)
 import Html.Attributes exposing (class)
 import Parser
 import Types exposing (..)
+
+
+insert_at : Int -> Token -> List Token -> List Token
+insert_at i token ts =
+    case ( i, ts ) of
+        ( 0, _ ) ->
+            token :: ts
+
+        ( _, t :: rest ) ->
+            t :: insert_at (i - 1) token rest
+
+        ( _, [] ) ->
+            Debug.log "should not have gotten here"
+                [ token ]
 
 
 move_cursor_right : ZToken -> ZToken
@@ -51,11 +68,20 @@ move_cursor_left z =
 add_char : Char -> ZToken -> ZToken
 add_char c ts =
     case ts of
-        ( (Char i) :: head, Nothing, tail ) ->
-            ( Char c :: Char i :: head, Nothing, tail )
+        ( head, Just (HoleToken ctx), tail ) ->
+            ( Char ctx c :: head, Nothing, tail )
 
-        ( head, Just HoleToken, tail ) ->
-            ( Char c :: head, Nothing, tail )
+        ( (Char ctx i) :: head, Nothing, tail ) ->
+            ( Char ctx c :: Char ctx i :: head, Nothing, tail )
+
+        ( head, Nothing, OpenParen :: tail ) ->
+            ( Char E c :: head, Nothing, Op Space :: OpenParen :: tail )
+
+        ( head, Nothing, Lambda :: tail ) ->
+            ( Char E c :: head, Nothing, Op Space :: Lambda :: tail )
+
+        ( head, Nothing, (Char ctx a) :: tail ) ->
+            ( Char ctx c :: head, Nothing, Char ctx a :: tail )
 
         ( head, Just a, tail ) ->
             ( head, Just a, tail )
@@ -104,38 +130,47 @@ backspace z =
                     a :: delete_closed_paren i rest
     in
     case z of
-        ( (Char _) :: (Char a) :: head, Nothing, tail ) ->
-            ( Char a :: head, Nothing, tail )
+        ( (Char _ _) :: (Char ctx a) :: head, Nothing, tail ) ->
+            ( Char ctx a :: head, Nothing, tail )
 
-        ( (Char _) :: head, Nothing, (Char a) :: tail ) ->
-            ( head, Nothing, Char a :: tail )
+        ( (Char _ _) :: head, Nothing, (Char ctx a) :: tail ) ->
+            ( head, Nothing, Char ctx a :: tail )
 
-        ( (Char _) :: head, Nothing, tail ) ->
-            ( head, Just HoleToken, tail )
+        ( (Char ctx _) :: head, Nothing, tail ) ->
+            ( head, Just (HoleToken ctx), tail )
 
-        ( (Op Space) :: HoleToken :: head, cursor, tail ) ->
+        ( (Op _) :: (HoleToken E) :: head, cursor, tail ) ->
             ( head, cursor, tail )
 
-        ( (Op Space) :: head, Just HoleToken, tail ) ->
+        ( (Op _) :: head, Just (HoleToken E), tail ) ->
             ( head, Nothing, tail )
 
-        ( (Op Space) :: (Char a) :: head, Nothing, (Char b) :: tail ) ->
-            ( Char a :: head, Nothing, Char b :: tail )
+        ( (Op _) :: (Char E a) :: head, Nothing, (Char E b) :: tail ) ->
+            ( Char E a :: head, Nothing, Char E b :: tail )
 
-        ( (Op Space) :: head, Nothing, tail ) ->
-            ( head, Nothing, Op Space :: tail )
+        ( (Op o) :: head, Nothing, tail ) ->
+            ( head, Nothing, Op o :: tail )
 
-        ( Dot :: head, Just HoleToken, tail ) ->
-            ( head, Nothing, Dot :: HoleToken :: tail )
+        ( Dot :: head, Just (HoleToken E), tail ) ->
+            ( head, Nothing, Dot :: HoleToken E :: tail )
 
         ( Dot :: head, Nothing, tail ) ->
             ( head, Nothing, Dot :: tail )
 
-        ( Lambda :: head, Just HoleToken, Dot :: tail ) ->
+        ( Lambda :: head, Just (HoleToken P), Dot :: tail ) ->
             ( head, Nothing, tail )
 
         ( Lambda :: head, Nothing, tail ) ->
-            ( head, Nothing, Lambda :: tail )
+            let
+                ( _, ts, n ) =
+                    Parser.parse_pattern tail
+            in
+            case ts of
+                Dot :: rest ->
+                    ( head, Nothing, rest )
+
+                _ ->
+                    Debug.log "uh-oh, invalid parse tree, needed a dot after a pattern" ( head, Nothing, tail )
 
         ( OpenParen :: head, cursor, tail ) ->
             ( head, cursor, delete_closed_paren 0 tail )
@@ -143,24 +178,47 @@ backspace z =
         ( CloseParen :: head, cursor, tail ) ->
             ( delete_open_paren 0 head, cursor, tail )
 
+        ( [], Just (HoleToken E), (Op Space) :: tail ) ->
+            ( [], Nothing, tail )
+
         ( head, cursor, tail ) ->
             ( head, cursor, tail )
 
 
-space : ZToken -> ZToken
-space z =
+construct_op : Op -> ZToken -> ZToken
+construct_op op z =
     case z of
-        ( head, Just HoleToken, tail ) ->
-            ( Op Space :: HoleToken :: head, Just HoleToken, tail )
+        ( head, Just (HoleToken E), tail ) ->
+            ( Op op :: HoleToken E :: head, Just (HoleToken E), tail )
 
-        ( (Char a) :: head, Nothing, (Char b) :: tail ) ->
-            ( Op Space :: Char a :: head, Nothing, tail )
+        ( (Char E a) :: head, Nothing, (Char E b) :: tail ) ->
+            ( Op op :: Char E a :: head, Nothing, Char E b :: tail )
 
-        ( (Char a) :: head, Nothing, tail ) ->
-            ( Op Space :: Char a :: head, Just HoleToken, tail )
+        ( (Char E a) :: head, Nothing, tail ) ->
+            ( Op op :: Char E a :: head, Just (HoleToken E), tail )
+
+        ( head, Nothing, (Char E a) :: tail ) ->
+            ( head, Just (HoleToken E), Op op :: Char E a :: tail )
 
         ( CloseParen :: head, Nothing, tail ) ->
-            ( Op Space :: CloseParen :: head, Just HoleToken, tail )
+            ( Op op :: CloseParen :: head, Just (HoleToken E), tail )
+
+        ( OpenParen :: head, Nothing, tail ) ->
+            ( OpenParen :: head, Just (HoleToken E), Op op :: tail )
+
+        ( head, Nothing, Dot :: tail ) ->
+            if op == Space then
+                ( Dot :: head, Nothing, tail )
+
+            else
+                ( head, Nothing, Dot :: tail )
+
+        ( head, Nothing, OpenParen :: tail ) ->
+            if op == Space then
+                ( OpenParen :: head, Nothing, tail )
+
+            else
+                ( head, Nothing, OpenParen :: tail )
 
         ( a, Nothing, tail ) ->
             ( a, Nothing, tail )
@@ -169,11 +227,60 @@ space z =
             ( head, Just c, tail )
 
 
+construct_eq : ZToken -> ZToken
+construct_eq z =
+    case z of
+        ( OpenParen :: head, Nothing, tail ) ->
+            ( OpenParen :: head, Just (HoleToken P), Equals :: tail )
+
+
+move_paren_left : ZToken -> ZToken
+move_paren_left z =
+    let
+        insert_paren tail =
+            case Parser.parse_single tail of
+                Parser.Ok ( _, _, n ) ->
+                    insert_at n CloseParen tail
+
+                Parser.Error e ->
+                    Debug.log "oh no, a malformed token tree"
+                        tail
+    in
+    case z of
+        ( head, cursor, CloseParen :: (Op op) :: tail ) ->
+            ( head, cursor, Op op :: insert_paren tail )
+
+        ( head, cursor, tail ) ->
+            ( head, cursor, tail )
+
+
 open_paren : ZToken -> ZToken
 open_paren z =
+    let
+        parenthesize head tail =
+            case Parser.parse_single tail of
+                Parser.Ok ( _, _, n ) ->
+                    ( OpenParen :: head
+                    , Nothing
+                    , insert_at n CloseParen tail
+                    )
+
+                Parser.Error e ->
+                    Debug.log "oh no, a malformed token tree"
+                        ( head, Nothing, tail )
+    in
     case z of
-        ( head, Just HoleToken, tail ) ->
-            ( OpenParen :: head, Just HoleToken, CloseParen :: tail )
+        ( head, Just (HoleToken E), tail ) ->
+            ( OpenParen :: head, Just (HoleToken E), CloseParen :: tail )
+
+        ( head, Nothing, OpenParen :: tail ) ->
+            parenthesize head (OpenParen :: tail)
+
+        ( head, Nothing, Lambda :: tail ) ->
+            parenthesize head (Lambda :: tail)
+
+        ( head, Nothing, (Char E c) :: tail ) ->
+            parenthesize head (Char E c :: tail)
 
         -- ( head, Normal, tail) ->
         --    (AstwVk)
@@ -186,8 +293,8 @@ next_hole original =
     let
         find_next_hole z =
             case z of
-                ( head, Nothing, HoleToken :: tail ) ->
-                    ( head, Just HoleToken, tail )
+                ( head, Nothing, (HoleToken ctx) :: tail ) ->
+                    ( head, Just (HoleToken ctx), tail )
 
                 ( head, Nothing, a :: tail ) ->
                     find_next_hole ( a :: head, Nothing, tail )
@@ -196,11 +303,11 @@ next_hole original =
                     Debug.log "impossible" original
 
                 ( _, Nothing, [] ) ->
-                    original
+                    z
     in
     case original of
-        ( head, Just HoleToken, tail ) ->
-            find_next_hole ( HoleToken :: head, Nothing, tail )
+        ( head, Just (HoleToken ctx), tail ) ->
+            find_next_hole ( HoleToken ctx :: head, Nothing, tail )
 
         _ ->
             find_next_hole original
@@ -211,8 +318,8 @@ previous_hole original =
     let
         find_previous_hole z =
             case z of
-                ( HoleToken :: head, Nothing, tail ) ->
-                    ( head, Just HoleToken, tail )
+                ( (HoleToken ctx) :: head, Nothing, tail ) ->
+                    ( head, Just (HoleToken ctx), tail )
 
                 ( a :: head, Nothing, tail ) ->
                     find_previous_hole ( head, Nothing, a :: tail )
@@ -221,30 +328,47 @@ previous_hole original =
                     Debug.log "impossible" original
 
                 ( [], Nothing, _ ) ->
-                    original
+                    z
     in
     case original of
-        ( head, Just HoleToken, tail ) ->
-            find_previous_hole ( head, Nothing, HoleToken :: tail )
+        ( head, Just (HoleToken ctx), tail ) ->
+            find_previous_hole ( head, Nothing, HoleToken ctx :: tail )
 
         _ ->
             find_previous_hole original
 
 
+construct_plus : ZToken -> ZToken
+construct_plus z =
+    case z of
+        ( head, Just (HoleToken E), tail ) ->
+            ( Op Plus :: HoleToken E :: head, Just (HoleToken E), tail )
+
+        ( head, cursor, tail ) ->
+            ( head, cursor, tail )
+
+
 construct_lambda : ZToken -> ZToken
 construct_lambda z =
     case z of
-        ( Lambda :: head, Just HoleToken, tail ) ->
-            ( Lambda :: head, Just HoleToken, tail )
+        ( Lambda :: head, Just (HoleToken P), Dot :: tail ) ->
+            ( Lambda :: Dot :: HoleToken P :: Lambda :: head, Just (HoleToken P), Dot :: tail )
 
-        ( head, Just HoleToken, tail ) ->
-            ( Lambda :: head, Just HoleToken, Dot :: OpenParen :: HoleToken :: CloseParen :: tail )
+        ( Lambda :: head, Just (HoleToken P), tail ) ->
+            ( Lambda :: head, Just (HoleToken P), tail )
+
+        ( head, Nothing, Dot :: tail ) ->
+            ( Lambda :: Dot :: head, Just (HoleToken P), Dot :: tail )
+
+        ( head, Just (HoleToken E), tail ) ->
+            ( Lambda :: head, Just (HoleToken P), Dot :: OpenParen :: HoleToken E :: CloseParen :: tail )
 
         ( head, Nothing, Lambda :: tail ) ->
-            ( Lambda :: head, Just HoleToken, Dot :: Lambda :: tail )
+            ( Lambda :: head, Just (HoleToken P), Dot :: Lambda :: tail )
 
-        --         ( head, Nothing, Dot :: tail ) ->
-        --             ( Lambda :: Dot :: Hole :: head, Just HoleToken, Dot :: tail )
+        ( head, Nothing, OpenParen :: tail ) ->
+            ( Lambda :: head, Just (HoleToken P), Dot :: OpenParen :: tail )
+
         ( head, cursor, tail ) ->
             ( head, cursor, tail )
 
@@ -267,11 +391,11 @@ remove_cursor ( head, cursor, tail ) =
 normalize_selection : ZToken -> ZToken
 normalize_selection z =
     case z of
-        ( HoleToken :: head, Nothing, tail ) ->
-            ( head, Just HoleToken, tail )
+        ( (HoleToken ctx) :: head, Nothing, tail ) ->
+            ( head, Just (HoleToken ctx), tail )
 
-        ( head, Nothing, HoleToken :: tail ) ->
-            ( head, Just HoleToken, tail )
+        ( head, Nothing, (HoleToken ctx) :: tail ) ->
+            ( head, Just (HoleToken ctx), tail )
 
         ( head, cursor, tail ) ->
             ( head, cursor, tail )
@@ -285,11 +409,14 @@ normalize_selection z =
 view_token : Token -> Html Msg
 view_token t =
     case t of
-        Char v ->
+        Char _ v ->
             text (String.fromChar v)
 
         Lambda ->
             text "λ"
+
+        Equals ->
+            text "="
 
         OpenParen ->
             text "("
@@ -303,7 +430,10 @@ view_token t =
         Op Space ->
             text " "
 
-        HoleToken ->
+        Op o ->
+            span [ class "op" ] [ text (string_of_op o) ]
+
+        HoleToken _ ->
             span [ class "hole" ] [ text "□" ]
 
 
@@ -328,7 +458,7 @@ view_ztoken ( head, cursor, tail ) =
                 Nothing ->
                     span [ class "cursor" ] []
 
-                Just HoleToken ->
+                Just (HoleToken _) ->
                     span [ class "cursor", class "hole" ] [ text "□" ]
 
                 Just a ->
