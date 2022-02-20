@@ -126,8 +126,6 @@ update msg model =
                         Just "/" ->
                             Token.construct_op Divide model
 
-                        -- Just "=" ->
-                        --     Token.construct_eq model
                         Just "Tab" ->
                             if shiftKey then
                                 Token.previous_hole model
@@ -138,10 +136,13 @@ update msg model =
                         Just "\\" ->
                             Token.construct_lambda model
 
+                        Just "=" ->
+                            Token.construct_let model
+
                         Just s ->
                             case String.uncons s of
                                 Just ( c, "" ) ->
-                                    if Char.isAlphaNum c then
+                                    if Char.isAlphaNum c && not (Char.isUpper c) then
                                         Token.add_char c model
 
                                     else

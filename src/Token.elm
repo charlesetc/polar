@@ -2,6 +2,7 @@ module Token exposing
     ( add_char
     , backspace
     , construct_lambda
+    , construct_let
     , construct_op
     , construct_plus
     , move_cursor_left
@@ -227,12 +228,14 @@ construct_op op z =
             ( head, Just c, tail )
 
 
+construct_let : ZToken -> ZToken
+construct_let z =
+    case z of
+        ( head, Just (HoleToken E), tail ) ->
+            ( LetToken :: head, Just (HoleToken P), Equals :: HoleToken E :: In :: HoleToken E :: tail )
 
--- construct_eq : ZToken -> ZToken
--- construct_eq z =
---     case z of
---         ( OpenParen :: head, Nothing, tail ) ->
---             ( OpenParen :: head, Just (HoleToken P), Equals :: tail )
+        ( _, _, _ ) ->
+            z
 
 
 move_paren_left : ZToken -> ZToken
@@ -417,7 +420,13 @@ view_token t =
             text "λ"
 
         Equals ->
-            text "="
+            text " = "
+
+        LetToken ->
+            text "let "
+
+        In ->
+            text " in "
 
         OpenParen ->
             text "("

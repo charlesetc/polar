@@ -110,3 +110,5 @@ type Token
     | Dot
     | Op Op
     | HoleToken ContextType
+    | LetToken
+    | In
