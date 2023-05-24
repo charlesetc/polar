@@ -5,6 +5,7 @@ body {
   padding-top:35px;
   width:600px;
   margin:auto;
+  font-size: 20px;
 }
 
 h1.title {
@@ -91,4 +92,10 @@ h1.title {
 .op {
   padding-left:10px;
   padding-right:10px;
+}
+
+a, a:visited {
+  color: #6fe2be;
+  text-decoration: none;
+
 }
